@@ -1,3 +1,4 @@
+# Usage (from any cwd):
 #   powershell -NoProfile -ExecutionPolicy Bypass -File .\apply.ps1
 $ErrorActionPreference = 'Stop'
 
