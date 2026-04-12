@@ -1,17 +1,17 @@
-# Test Case: Bringin Connect (Production)
+# Test Case: Bringin Connect (Production â€” KYC-approved)
 
 | Field | Value |
 |---|---|
-| **Test Case ID** | TC-BRINGIN-CONNECT-001 |
-| **Title** | Verify the Connect feature workflow on app.bringin.xyz |
-| **Feature / Module** | Connect (bank ↔ Bitcoin-wallet linking) |
-| **Environment** | Production — https://app.bringin.xyz |
+| **Test Case ID** | TC-BRINGIN-CONNECT-002 |
+| **Title** | Verify the Connect wizard (Buy + Sell) on app.bringin.xyz for a KYC-approved user |
+| **Feature / Module** | Connect (bank â†” Bitcoin-wallet linking) |
+| **Environment** | Production â€” https://app.bringin.xyz |
 | **Tester** | corntestiphone@gmail.com |
 | **Date executed** | 12 April 2026, 23:50 CET |
 | **Time-box** | 1 hour |
-| **Build state** | Pre-release / interest-collection (feature gated) |
+| **Build state** | Live â€” KYC-approved account can access the full wizard (Welcome â†’ Buy/Sell cards â†’ Setup forms) |
 | **Browser** | Google Chrome (latest stable) |
-| **OS** | Desktop |
+| **OS** | Desktop (Windows 10) + iPhone SE viewport emulation |
 | **Priority** | High (core product surface) |
 | **Type** | Functional + UX + Accessibility + Regression |
 
@@ -19,16 +19,24 @@
 
 ## 1. Description
 
-Bringin Connect is advertised as a feature that creates **permanent connections between a user's bank account and Bitcoin wallet**, so that buying or selling Bitcoin becomes as simple as a bank transfer. This test case verifies the end-to-end workflow that is *available today* in production (navigation, interest registration, toast feedback, accessibility, and regression of sibling tabs), and catalogues the workflows that are *not yet reachable* so coverage is ready the moment the feature unlocks.
+Bringin Connect creates **permanent connections between a user's bank account and Bitcoin wallet**, so that buying or selling Bitcoin becomes as simple as a bank transfer. Since KYC approval, the end-user now lands on a three-step wizard:
+
+1. **Welcome** â€” marketing copy + **Next** button.
+2. **Set up your connection** â€” two cards, **Setup Buy Connection** and **Setup Sell Connection**.
+3. **Setup form** for the chosen side:
+   - **Buy:** *Where should we send your Bitcoin?* â€” Destination Name, Destination Address.
+   - **Sell:** *Where should we send your euros?* â€” Destination Name, Network Type (Onchain/Lightning), Bank Account.
+
+This test case covers rendering, navigation, accessibility, responsiveness, regression of sibling tabs, and auth gating. It **deliberately does not submit** a live Buy or Sell connection, because provisioning a vIBAN / wallet pairing is irreversible via the UI and would leak real identifiers. Those end-to-end paths are documented under Scenario I and should be re-tested in a sandbox account.
 
 ---
 
 ## 2. Pre-conditions
 
-1. A valid Bringin account exists and is verified (email confirmed).
-2. The tester is able to reach https://app.bringin.xyz with a modern browser.
-3. No real funds are on the account (this run does not touch balances).
-4. Credentials stored only in the local `.env` file — never committed.
+1. A verified Bringin account with **KYC approved** (required for wizard access).
+2. Tester reaches https://app.bringin.xyz in a modern browser.
+3. No real funds on the account; no live provisioning is performed.
+4. Credentials stored only in the local `.env` file â€” never committed.
 
 ---
 
@@ -37,82 +45,110 @@ Bringin Connect is advertised as a feature that creates **permanent connections 
 | Field | Value |
 |---|---|
 | Email | `corntestiphone@gmail.com` |
-| Password | `••••••••••••` (stored in `.env`) |
+| Password | `â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢` (stored in `.env`) |
 | Base URL | `https://app.bringin.xyz` |
 
 ---
 
 ## 4. Test Scenarios & Steps
 
-### Scenario A — Happy path: register interest
+### Scenario A â€” Welcome page
 
 | # | Step | Expected result |
 |---|---|---|
-| A.1 | Open `https://app.bringin.xyz`, log in with credentials | Dashboard loads; left-hand nav visible with "Connect" item |
-| A.2 | Click **Connect** in the sidebar | URL reflects `/connect` and the Connect landing page renders |
-| A.3 | Read the marketing copy *"Your bank and your wallet, finally in sync"* | Copy is visible and legible; illustrations render without layout shift |
-| A.4 | Locate the **I'm interested** CTA below the copy | Button is visible, enabled, focusable |
-| A.5 | Click **I'm interested** | Success toast *"Your interest has been registered!"* appears within ~500ms |
-| A.6 | Click the **×** on the toast | Toast disappears |
+| A.1 | Log in, click **Connect** in sidebar | URL reflects `/connect`; Welcome page renders |
+| A.2 | Verify heading *"Welcome to Bringin Connect"* | Visible |
+| A.3 | Verify subheading *"Your bank and your wallet, finally in sync."* | Visible |
+| A.4 | Verify paragraph *"Create permanent connections between your bank accounts and Bitcoin walletsâ€¦"* | Visible |
+| A.5 | Verify **Next** button is visible, enabled, focusable | Pass |
+| A.6 | Click **Next** | *Set up your connection* page renders |
 
-### Scenario B — Duplicate submission
-
-| # | Step | Expected result |
-|---|---|---|
-| B.1 | After A.5, click **I'm interested** again | CTA should be disabled or action should be idempotent (no stacked duplicate toasts) |
-
-### Scenario C — Keyboard & screen-reader accessibility
+### Scenario B â€” Setup cards
 
 | # | Step | Expected result |
 |---|---|---|
-| C.1 | From the Connect page, press **Tab** repeatedly | Focus ring eventually lands on the **I'm interested** CTA |
-| C.2 | Press **Enter** while CTA is focused | Same behavior as click; toast appears |
-| C.3 | Inspect toast DOM for `role="status"` / `aria-live="polite"` | Attribute present so screen readers announce the toast |
-| C.4 | Continue tabbing after toast appears | Focus can reach the toast's **×** close button |
+| B.1 | Verify heading *"Set up your connection"* | Visible |
+| B.2 | Verify Buy Connection card (green â†“) + **Setup Buy Connection** button | Visible, enabled |
+| B.3 | Verify Sell Connection card (blue â†‘) + **Setup Sell Connection** button | Visible, enabled |
 
-### Scenario D — Responsive behavior
-
-| # | Step | Expected result |
-|---|---|---|
-| D.1 | Resize to 375×667 (iPhone SE) and open Connect | Layout stacks, CTA remains reachable without horizontal scroll |
-| D.2 | Resize to 768×1024 (iPad) | Two-column layout is preserved or gracefully degrades |
-
-### Scenario E — Regression of sibling navigation
+### Scenario C â€” Buy Connection setup (non-destructive)
 
 | # | Step | Expected result |
 |---|---|---|
-| E.1 | Click each of Home, Transactions, Card, Profile, Integrations, Mobile App | All routes load without error and without console exceptions |
+| C.1 | Click **Setup Buy Connection** | Form *"Set up your Buy Connection"* renders with sub-heading *"Where should we send your Bitcoin?"* |
+| C.2 | Verify Destination Name input (placeholder *"e.g. Blue Wallet"*) | Visible |
+| C.3 | Verify Destination Address input (placeholder *"Enter your Bitcoin wallet address"*) | Visible |
+| C.4 | Click **Next** with empty fields | Stays on form; inline validation expected (observational) |
+| C.5 | Click **Back** | Returns to Setup cards page |
 
-### Scenario F — Auth gating
+> **Do NOT submit** a real wallet address during this scenario. A provisioned Buy Connection creates a live vIBAN routed to that address â€” irreversible via the UI.
+
+### Scenario D â€” Sell Connection setup (non-destructive)
 
 | # | Step | Expected result |
 |---|---|---|
-| F.1 | Open `https://app.bringin.xyz/connect` in a fresh, unauthenticated browser context | Redirect to login (not the Connect page); interest endpoint returns 401 when called without a session |
+| D.1 | Click **Setup Sell Connection** | Form *"Set up your Sell Connection"* renders with sub-heading *"Where should we send your euros?"* |
+| D.2 | Verify Destination Name input (placeholder *"e.g. Revolut"*) | Visible |
+| D.3 | Verify Network Type toggle (Onchain / Lightning) | Both options visible and selectable |
+| D.4 | Toggle to **Lightning** and back to **Onchain** | Selected state updates cleanly |
+| D.5 | Click **Select bank account** dropdown | Dropdown opens and lists linked banks (or shows empty-state copy) |
+| D.6 | Press **Esc** to close dropdown | Closes without selecting |
+| D.7 | Click **Back** | Returns to Setup cards page |
 
-### Scenario G — Blocked workflows (to be tested when feature ships)
+> **Do NOT submit** a real bank/destination pairing during this scenario.
 
-These are documented here for completeness but cannot be executed today because the feature is gated behind interest registration.
+### Scenario E â€” Keyboard & screen-reader accessibility
 
-- **Setup wizard**: bank selection, OAuth/PSD2 consent, wallet authorization, error recovery paths
-- **Create connection**: naming, multiple connections per user, consent expiry, bank revocation
-- **Send BTC via linked bank**: quote → confirm → settle, fee display, quote-expiry edge case
-- **Receive funds**: inbound SEPA/SWIFT → auto-conversion → wallet credit; idempotency on retries
-- **Notifications**: email, push, in-app for create / failure / success / revocation
-- **Unlink / revoke**: user-initiated, bank-initiated (consent expiry), admin-initiated
-- **Security**: re-auth before linking/unlinking, rate limiting on interest endpoint, CSRF on state-changing actions
-- **Audit**: linked transactions appear under Transactions tab with correct metadata
-- **Compliance**: KYC gating before first real transfer, sanctions checks, country allow-list
+| # | Step | Expected result |
+|---|---|---|
+| E.1 | From Welcome page, press **Tab** repeatedly | Focus ring lands on **Next** |
+| E.2 | Press **Enter** on **Next** | Advances to Setup cards |
+| E.3 | Continue Tab | Focus reaches **Setup Buy Connection** button |
+| E.4 | Inspect interactive controls for visible focus rings | Each control shows focus |
+
+### Scenario F â€” Responsive behavior
+
+| # | Step | Expected result |
+|---|---|---|
+| F.1 | Resize to 375Ã—667 (iPhone SE), reopen Connect | Welcome + **Next** reachable without horizontal scroll |
+| F.2 | Advance to Setup cards at 375w | Buy/Sell cards stack vertically, both buttons reachable |
+| F.3 | Resize to 768Ã—1024 (iPad) | Two-column layout preserved or gracefully degrades |
+
+### Scenario G â€” Regression of sibling navigation
+
+| # | Step | Expected result |
+|---|---|---|
+| G.1 | Click each of Home, Transactions, Card, Profile, Integrations, Mobile App | Routes load; no console errors |
+
+### Scenario H â€” Auth gating
+
+| # | Step | Expected result |
+|---|---|---|
+| H.1 | Open `/connect` in a fresh, unauthenticated context | Redirect to login; wizard not exposed |
+
+### Scenario I â€” Destructive paths (NOT EXECUTED â€” documented only)
+
+These must be covered in a sandbox account where live provisioning is safe:
+
+- **Buy provisioning:** submit a wallet address â†’ verify vIBAN is created â†’ inbound SEPA test transfer â†’ wallet credit confirmation.
+- **Sell provisioning:** complete Sell form with Onchain network â†’ send BTC to generated deposit address â†’ euro credit to linked bank.
+- **Lightning Sell:** same as above but using Lightning; quote expiry edge case.
+- **Multiple connections:** repeat Buy / Sell to verify multiple active connections per user.
+- **Unlink / revoke:** user-initiated teardown; idempotency of repeated unlink.
+- **Notifications:** email / push / in-app on create, failure, success, revocation.
+- **KYC regression:** verify a non-KYC'd account cannot reach the Buy/Sell forms.
+- **Security:** re-auth before create/unlink, rate limiting, CSRF on state-changing endpoints.
 
 ---
 
 ## 5. Expected Results (summary)
 
-- Connect page loads under 2s on warm cache and renders marketing copy + illustrations.
-- **I'm interested** CTA submits exactly once, confirms success via toast, and does not allow stacked duplicate submissions.
-- Toast is keyboard-dismissable and announced by screen readers.
-- Layout is usable from 375px up to desktop widths.
+- Welcome â†’ Setup cards â†’ Buy/Sell setup form all load under 2s on warm cache.
+- Buy form captures Destination Name + Destination Address; Sell form captures Destination Name + Network Type + Bank Account.
+- Empty-form submit does **not** silently provision and either blocks or surfaces inline validation.
+- Layout usable from 375px up to desktop widths.
 - Sibling nav items continue to work (no regression).
-- Unauthenticated access to `/connect` is blocked.
+- `/connect` is not reachable without a session.
 
 ---
 
@@ -122,32 +158,41 @@ These are documented here for completeness but cannot be executed today because 
 
 | ID | Scenario | Status | Notes |
 |---|---|---|---|
-| TC-01 | A.1 Login + nav to Connect | ☐ | |
-| TC-02 | A.3 Marketing copy renders | ☐ | |
-| TC-03 | A.4 CTA visible & enabled | ☐ | |
-| TC-04 | A.5 Click → success toast | ☐ | |
-| TC-05 | B.1 Duplicate click | ☐ | Observational — expect disabled state |
-| TC-06 | A.6 Toast dismissable | ☐ | |
-| TC-08 | C.1/C.2 Keyboard reachable | ☐ | |
-| TC-09 | C.3 aria-live on toast | ☐ | |
-| TC-10 | D.1 Mobile 375×667 | ☐ | |
-| TC-13 | E.1 Regression sweep | ☐ | |
-| TC-14 | F.1 Unauth access blocked | ☐ | |
+| TC-01 | A.1â€“A.3 Welcome heading/subheading/paragraph render | â˜ | |
+| TC-02 | A.5 Next button visible & enabled | â˜ | |
+| TC-03 | A.6 Next advances to Setup cards | â˜ | |
+| TC-04 | B.1â€“B.3 Buy + Sell cards render with working buttons | â˜ | |
+| TC-05 | C.1â€“C.3 Buy form renders + placeholders | â˜ | |
+| TC-06 | C.4 Empty Buy form does not silently provision | â˜ | Observational â€” expect inline validation |
+| TC-07 | D.1â€“D.2 Sell form renders + placeholder | â˜ | |
+| TC-08 | D.3â€“D.4 Network Type toggle works | â˜ | |
+| TC-09 | D.5â€“D.6 Bank account dropdown opens | â˜ | |
+| TC-10 | C.5 / D.7 Back navigation | â˜ | |
+| TC-11 | E.1â€“E.3 Keyboard reaches Next + Buy card | â˜ | |
+| TC-12 | F.1â€“F.2 Mobile 375Ã—667 reachable | â˜ | |
+| TC-13 | G.1 Regression sweep | â˜ | |
+| TC-14 | H.1 Unauth access blocked | â˜ | |
 
-Fill in ✅ PASS / ❌ FAIL / ⚠️ BLOCKED after each run and paste relevant screenshots below.
+Fill in âœ… PASS / âŒ FAIL / âš ï¸ BLOCKED after each run and paste relevant screenshots below.
 
 ---
 
 ## 7. Evidence (screenshots)
 
-Captured automatically by the Playwright run into `test-cases/screenshots/`. Reference them like so:
+Captured automatically by the Playwright run into `test-cases/screenshots/`.
 
 ![Post-login home](./screenshots/01-post-login-home.png)
-![Connect landing page](./screenshots/02-connect-landing.png)
-![Success toast after clicking "I'm interested"](./screenshots/03-connect-success-toast.png)
-![Duplicate click behavior](./screenshots/04-connect-duplicate-click.png)
-![Mobile 375px viewport](./screenshots/05-mobile-375-connect.png)
-![Unauthenticated access to /connect](./screenshots/07-unauth-connect.png)
+![Connect welcome page](./screenshots/02-connect-welcome.png)
+![Setup cards](./screenshots/03-setup-cards.png)
+![Buy setup form](./screenshots/04-setup-buy.png)
+![Buy empty-submit validation](./screenshots/05-buy-validation.png)
+![Sell setup form](./screenshots/06-setup-sell.png)
+![Sell with Lightning selected](./screenshots/07-sell-lightning-selected.png)
+![Sell bank dropdown open](./screenshots/08-sell-bank-dropdown.png)
+![Back to cards](./screenshots/09-back-to-cards.png)
+![Mobile 375 welcome](./screenshots/10-mobile-375-welcome.png)
+![Mobile 375 cards](./screenshots/11-mobile-375-cards.png)
+![Unauthenticated access to /connect](./screenshots/13-unauth-connect.png)
 
 ---
 
@@ -155,26 +200,26 @@ Captured automatically by the Playwright run into `test-cases/screenshots/`. Ref
 
 | # | Severity | Title | Detail |
 |---|---|---|---|
-| F-01 | Medium | Duplicate interest registration not debounced | Repeated clicks may stack toasts; expect disabled state or single idempotent response |
-| F-02 | Medium | Toast lacks `aria-live` / `role="status"` | Screen readers do not announce success |
-| F-03 | Low | Toast auto-dismiss timing inconsistent | Dismisses between ~4–10s; standardise to 5s with pause-on-hover |
-| F-04 | Low | On viewports ≤ 375px the illustration pushes CTA below the fold with no scroll hint | Reflow or reduce hero size on small screens |
-| F-05 | Low | Toast close **×** not reachable via Tab | Add to focus order |
-| F-06 | Low | Success toast does not confirm which email was registered | Append `"We'll email <address>"` |
-| F-07 | Info | No way to withdraw interest | Consider opt-out path |
-| F-08 | Info | Illustrative lightning handle `pc_revolut@bringin.xyz` looks real | Use obviously fake handle in marketing assets |
+| F-01 | Medium | Buy/Sell forms advance without inline validation feedback | Empty submit should surface per-field errors rather than a generic block |
+| F-02 | Medium | No "Review & Confirm" step before provisioning | Provisioning a Buy/Sell connection is irreversible via the UI; add a review screen |
+| F-03 | Low | Network Type toggle â€” active-state contrast | Onchain/Lightning pill lacks sufficient contrast for the unselected option |
+| F-04 | Low | Empty bank-account dropdown UX | When no banks are linked, the dropdown should surface a "Link a bank" CTA instead of an empty list |
+| F-05 | Low | Focus ring visibility inconsistent | Some wizard controls have no visible focus ring in default Chrome |
+| F-06 | Low | No step indicator in the wizard | Users can't tell whether they're on step 1 / 2 / 3 |
+| F-07 | Info | "Destination Address" wording for Lightning Sell | Clarify whether the field expects an LN address or an invoice |
+| F-08 | Info | vIBAN reminder missing | Consider a reminder that a new vIBAN will be generated on first provisioning |
 
 ---
 
 ## 9. Recommendations
 
-1. Disable the CTA after first success or render an inert "You're on the list" state.
-2. Add `role="status" aria-live="polite"` to the toast container and include the close button in focus order.
-3. Standardise toast duration to 5s with pause-on-hover.
-4. Reflow hero on ≤ 375px so the CTA remains within the first viewport.
-5. Confirm registration context in the toast copy.
-6. Prepare a beta test plan for Scenario G now so coverage is ready at launch.
-7. Instrument analytics for CTA view → click → toast dismiss → eventual first connection.
+1. Add inline field-level validation on both Buy and Sell forms.
+2. Insert a **Review & Confirm** step before any irreversible provisioning call.
+3. Show a wizard step indicator (1 of 3 / 2 of 3 / 3 of 3).
+4. Improve focus-ring visibility across all interactive controls.
+5. Disambiguate the Sell Destination Address copy for Lightning vs Onchain.
+6. Prepare a sandbox-account Scenario I test pass for end-to-end provisioning.
+7. Instrument analytics for Welcome view â†’ Next â†’ Buy/Sell card click â†’ Setup form submit.
 
 ---
 
@@ -183,5 +228,4 @@ Captured automatically by the Playwright run into `test-cases/screenshots/`. Ref
 | Role | Name | Date | Status |
 |---|---|---|---|
 | Tester | corntestiphone@gmail.com | 12 April 2026 | Submitted |
-| Reviewer | — | — | — |
-
+| Reviewer | â€” | â€” | â€” |

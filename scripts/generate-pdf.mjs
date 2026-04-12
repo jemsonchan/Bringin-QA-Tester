@@ -21,18 +21,22 @@ const output = path.resolve(outputArg);
 const mdDir = path.dirname(input);
 const md = fs.readFileSync(input, 'utf8');
 
-// Rewrite relative image/link paths to absolute file URLs so they render in the PDF.
-const renderer = new marked.Renderer();
-const origImage = renderer.image.bind(renderer);
-renderer.image = (href, title, text) => {
-  if (href && !/^([a-z]+:)?\/\//i.test(href) && !href.startsWith('data:')) {
-    const abs = path.resolve(mdDir, href);
-    if (fs.existsSync(abs)) href = pathToFileURL(abs).href;
-  }
-  return origImage(href, title, text);
+// marked v13 passes a token object: { type, href, title, text, tokens }
+const renderer = {
+  image({ href, title, text }) {
+    let h = href ?? '';
+    if (h && !/^([a-z]+:)?\/\//i.test(h) && !h.startsWith('data:')) {
+      const abs = path.resolve(mdDir, h);
+      if (fs.existsSync(abs)) h = pathToFileURL(abs).href;
+    }
+    const t = title ? ` title="${title.replace(/"/g, '&quot;')}"` : '';
+    const a = (text ?? '').replace(/"/g, '&quot;');
+    return `<img src="${h}" alt="${a}"${t}>`;
+  },
 };
+marked.use({ renderer });
 
-const html = marked.parse(md, { renderer });
+const html = marked.parse(md);
 
 const css = `
   @page { size: A4; margin: 18mm 16mm; }

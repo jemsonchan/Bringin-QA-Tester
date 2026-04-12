@@ -10,6 +10,9 @@
     "test:ui": "playwright test --ui",
     "report": "playwright show-report",
     "pdf": "node scripts/generate-pdf.mjs test-cases/TC-Bringin-Connect.md test-cases/TC-Bringin-Connect.pdf",
+    "pdf:report": "node scripts/generate-pdf.mjs QA-Report-Bringin-Connect.md QA-Report-Bringin-Connect.pdf",
+    "docx": "node scripts/generate-docx.mjs test-cases/TC-Bringin-Connect.md test-cases/TC-Bringin-Connect.doc",
+    "docx:report": "node scripts/generate-docx.mjs QA-Report-Bringin-Connect.md QA-Report-Bringin-Connect.doc",
     "install:browsers": "playwright install chromium"
   },
   "devDependencies": {
