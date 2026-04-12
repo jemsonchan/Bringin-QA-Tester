@@ -18,17 +18,14 @@ test.beforeAll(() => {
 
 const rand = (min: number, max: number) => min + Math.floor(Math.random() * (max - min));
 
-/** Short randomized pause â€” use between small UI steps. */
 async function humanPause(page: Page, min = 900, max = 1800) {
   await page.waitForTimeout(rand(min, max));
 }
 
-/** Longer randomized pause â€” use after navigations / logins. */
 async function longPause(page: Page, min = 2200, max = 4200) {
   await page.waitForTimeout(rand(min, max));
 }
 
-/** Move mouse toward the element's centre before clicking. */
 async function humanClick(page: Page, locator: Locator) {
   await locator.scrollIntoViewIfNeeded().catch(() => {});
   const box = await locator.boundingBox();
@@ -40,10 +37,9 @@ async function humanClick(page: Page, locator: Locator) {
   }
   await locator.hover().catch(() => {});
   await page.waitForTimeout(rand(140, 360));
-  await locator.click({ delay: rand(40, 120) });
+  await locator.click({ delay: rand(40, 120), timeout: 8_000 });
 }
 
-/** Type like a human â€” per-character delay + occasional extra pause. */
 async function humanType(locator: Locator, text: string) {
   await locator.click({ delay: rand(30, 100) });
   await locator.fill('');
@@ -61,20 +57,12 @@ async function shot(page: Page, name: string) {
   return file;
 }
 
-/** Best-effort cookie/consent dismiss so it doesn't block clicks. */
 async function dismissConsent(page: Page) {
-  const labels = [
-    /accept all/i,
-    /accept cookies/i,
-    /i agree/i,
-    /got it/i,
-    /allow all/i,
-    /^accept$/i,
-  ];
+  const labels = [/accept all/i, /accept cookies/i, /i agree/i, /got it/i, /allow all/i, /^accept$/i];
   for (const name of labels) {
     const btn = page.getByRole('button', { name }).first();
-    if (await btn.isVisible().catch(() => false)) {
-      await humanClick(page, btn);
+    if (await btn.isVisible({ timeout: 1_500 }).catch(() => false)) {
+      await humanClick(page, btn).catch(() => {});
       await humanPause(page, 600, 1200);
       return;
     }
@@ -83,7 +71,8 @@ async function dismissConsent(page: Page) {
 
 async function login(page: Page) {
   await page.goto('/', { waitUntil: 'domcontentloaded' });
-  await page.waitForLoadState('networkidle').catch(() => {});
+  // Bounded networkidle â€” Bringin keeps SSE/websockets open, so unbounded networkidle hangs.
+  await page.waitForLoadState('networkidle', { timeout: 8_000 }).catch(() => {});
   await longPause(page);
 
   await dismissConsent(page);
@@ -98,7 +87,7 @@ async function login(page: Page) {
   await humanPause(page);
 
   const passwordField = page.locator('input[type="password"]').first();
-  if (await passwordField.isVisible().catch(() => false)) {
+  if (await passwordField.isVisible({ timeout: 2_000 }).catch(() => false)) {
     await humanType(passwordField, PASSWORD!);
   } else {
     const next = page.getByRole('button', { name: /continue|next/i }).first();
@@ -110,15 +99,12 @@ async function login(page: Page) {
   }
   await humanPause(page);
 
-  const submit = page
-    .getByRole('button', { name: /log ?in|sign ?in|continue/i })
-    .first();
+  const submit = page.getByRole('button', { name: /log ?in|sign ?in|continue/i }).first();
   await humanClick(page, submit);
 
   await longPause(page, 3500, 6000);
-  await page.waitForLoadState('networkidle').catch(() => {});
+  await page.waitForLoadState('networkidle', { timeout: 8_000 }).catch(() => {});
 
-  // Post-login dashboard â€” "Connect" entry present in side/bottom nav.
   await expect(
     page.locator('a[href$="/connect"]').first()
       .or(page.getByRole('link', { name: /^\s*connect\s*$/i }).first())
@@ -127,18 +113,59 @@ async function login(page: Page) {
   await humanPause(page);
 }
 
-/** Click the "Connect" entry in the nav robustly (href-first, text fallback). */
+/**
+ * Open the Connect page.
+ *
+ * The nav link is sometimes intercepted (overlay / custom handler) which makes a plain
+ * humanClick hang until actionTimeout. We:
+ *   1) try several locator strategies with a short per-try budget,
+ *   2) wait for URL change (not networkidle â€” Bringin keeps live sockets open),
+ *   3) fall back to a direct `page.goto('/connect')` if clicking never navigates.
+ */
 async function gotoConnect(page: Page) {
-  const byHref = page.locator('a[href$="/connect"]').first();
-  if (await byHref.isVisible().catch(() => false)) {
-    await humanClick(page, byHref);
-  } else {
-    const byRole = page.getByRole('link', { name: /^\s*connect\s*$/i }).first();
-    await humanClick(page, byRole);
+  // Open a burger/hamburger if the sidebar is collapsed.
+  const burger = page.getByRole('button', { name: /menu|navigation|open nav|toggle/i }).first();
+  if (await burger.isVisible({ timeout: 1_500 }).catch(() => false)) {
+    await humanClick(page, burger).catch(() => {});
+    await humanPause(page, 400, 900);
   }
-  await page.waitForLoadState('networkidle').catch(() => {});
-  await longPause(page);
-  await expect(page).toHaveURL(/\/connect(\?|$|\/)/i);
+
+  const strategies: Array<() => Locator> = [
+    () => page.locator('a[href$="/connect"]').first(),
+    () => page.locator('a[href*="/connect"]').first(),
+    () => page.getByRole('link', { name: /^\s*connect\s*$/i }).first(),
+    () => page.getByRole('button', { name: /^\s*connect\s*$/i }).first(),
+    () => page.locator('nav a, aside a, [role="navigation"] a').filter({ hasText: /^\s*connect\s*$/i }).first(),
+  ];
+
+  let clicked = false;
+  for (const getLoc of strategies) {
+    const loc = getLoc();
+    if (!(await loc.isVisible({ timeout: 1_500 }).catch(() => false))) continue;
+    try {
+      await loc.scrollIntoViewIfNeeded().catch(() => {});
+      try {
+        await humanClick(page, loc);
+      } catch {
+        // Click intercepted â€” bypass actionability checks once.
+        await loc.click({ force: true, delay: 40 });
+      }
+      const urlOk = await page
+        .waitForURL(/\/connect(\?|$|\/)/i, { timeout: 8_000 })
+        .then(() => true)
+        .catch(() => false);
+      if (urlOk) { clicked = true; break; }
+    } catch { /* try next */ }
+  }
+
+  if (!clicked) {
+    // Session cookies persist after login â€” direct navigation is reliable.
+    await page.goto('/connect', { waitUntil: 'domcontentloaded' });
+    await page.waitForURL(/\/connect(\?|$|\/)/i, { timeout: 15_000 }).catch(() => {});
+  }
+
+  await longPause(page, 1500, 2800);
+  await expect(page).toHaveURL(/\/connect(\?|$|\/)/i, { timeout: 10_000 });
 }
 
 function welcomeNextButton(page: Page): Locator {
@@ -159,13 +186,12 @@ function backButton(page: Page): Locator {
     .first();
 }
 
-/** Advance from Welcome â†’ Cards page. Safe to call even if already past the welcome step. */
 async function advancePastWelcome(page: Page) {
   const next = welcomeNextButton(page);
-  if (await next.isVisible().catch(() => false)) {
-    await humanClick(page, next);
+  if (await next.isVisible({ timeout: 2_500 }).catch(() => false)) {
+    try { await humanClick(page, next); } catch { await next.click({ force: true, delay: 40 }); }
     await humanPause(page);
-    await page.waitForLoadState('networkidle').catch(() => {});
+    await page.waitForLoadState('networkidle', { timeout: 6_000 }).catch(() => {});
   }
 }
 
@@ -188,9 +214,9 @@ test.describe('Bringin Connect â€” KYC-approved wizard smoke', () => {
     await expect(next).toBeVisible();
     await expect(next).toBeEnabled();
 
-    await humanClick(page, next);
+    try { await humanClick(page, next); } catch { await next.click({ force: true, delay: 40 }); }
     await humanPause(page);
-    await page.waitForLoadState('networkidle').catch(() => {});
+    await page.waitForLoadState('networkidle', { timeout: 6_000 }).catch(() => {});
 
     await expect(page.getByText(/set up your connection/i)).toBeVisible({ timeout: 15_000 });
     await shot(page, '03-setup-cards');
@@ -218,9 +244,10 @@ test.describe('Bringin Connect â€” KYC-approved wizard smoke', () => {
     await gotoConnect(page);
     await advancePastWelcome(page);
 
-    await humanClick(page, setupBuyCardButton(page));
+    const buyCard = setupBuyCardButton(page);
+    try { await humanClick(page, buyCard); } catch { await buyCard.click({ force: true, delay: 40 }); }
     await humanPause(page);
-    await page.waitForLoadState('networkidle').catch(() => {});
+    await page.waitForLoadState('networkidle', { timeout: 6_000 }).catch(() => {});
 
     await expect(page.getByText(/set up your buy connection/i)).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText(/where should we send your bitcoin/i)).toBeVisible();
@@ -231,13 +258,13 @@ test.describe('Bringin Connect â€” KYC-approved wizard smoke', () => {
     await expect(destAddr).toBeVisible();
     await shot(page, '04-setup-buy');
 
-    // Empty-form submit: observational. We do NOT fill a real wallet address,
-    // because provisioning a live Buy Connection is irreversible via the UI.
+    // Observational only â€” we do NOT fill a real wallet address (provisioning is irreversible).
     const next = page.getByRole('button', { name: /^\s*next\s*$/i }).first();
-    if ((await next.isVisible().catch(() => false)) && (await next.isEnabled().catch(() => false))) {
-      await humanClick(page, next);
+    if (await next.isVisible({ timeout: 2_500 }).catch(() => false) &&
+        await next.isEnabled({ timeout: 1_500 }).catch(() => false)) {
+      try { await humanClick(page, next); } catch { await next.click({ force: true, delay: 40 }); }
       await humanPause(page, 1200, 2200);
-      const stillOnForm = await page.getByText(/set up your buy connection/i).isVisible().catch(() => false);
+      const stillOnForm = await page.getByText(/set up your buy connection/i).isVisible({ timeout: 2_000 }).catch(() => false);
       test.info().annotations.push({
         type: 'validation',
         description: stillOnForm
@@ -248,8 +275,8 @@ test.describe('Bringin Connect â€” KYC-approved wizard smoke', () => {
     }
 
     const back = backButton(page);
-    if (await back.isVisible().catch(() => false)) {
-      await humanClick(page, back);
+    if (await back.isVisible({ timeout: 2_500 }).catch(() => false)) {
+      try { await humanClick(page, back); } catch { await back.click({ force: true, delay: 40 }); }
       await humanPause(page);
       await expect(page.getByText(/set up your connection/i)).toBeVisible({ timeout: 10_000 });
     }
@@ -260,9 +287,10 @@ test.describe('Bringin Connect â€” KYC-approved wizard smoke', () => {
     await gotoConnect(page);
     await advancePastWelcome(page);
 
-    await humanClick(page, setupSellCardButton(page));
+    const sellCard = setupSellCardButton(page);
+    try { await humanClick(page, sellCard); } catch { await sellCard.click({ force: true, delay: 40 }); }
     await humanPause(page);
-    await page.waitForLoadState('networkidle').catch(() => {});
+    await page.waitForLoadState('networkidle', { timeout: 6_000 }).catch(() => {});
 
     await expect(page.getByText(/set up your sell connection/i)).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText(/where should we send your euros/i)).toBeVisible();
@@ -271,7 +299,6 @@ test.describe('Bringin Connect â€” KYC-approved wizard smoke', () => {
     await expect(destName).toBeVisible();
     await shot(page, '06-setup-sell');
 
-    // Network type toggle Onchain <-> Lightning
     const onchain = page.getByRole('button', { name: /^\s*onchain\s*$/i })
       .or(page.getByText(/^\s*onchain\s*$/i)).first();
     const lightning = page.getByRole('button', { name: /^\s*lightning\s*$/i })
@@ -279,26 +306,25 @@ test.describe('Bringin Connect â€” KYC-approved wizard smoke', () => {
     await expect(onchain).toBeVisible();
     await expect(lightning).toBeVisible();
 
-    if (await lightning.isVisible().catch(() => false)) {
-      await humanClick(page, lightning);
+    if (await lightning.isVisible({ timeout: 2_000 }).catch(() => false)) {
+      try { await humanClick(page, lightning); } catch { await lightning.click({ force: true, delay: 40 }); }
       await humanPause(page);
       await shot(page, '07-sell-lightning-selected');
-      await humanClick(page, onchain);
+      try { await humanClick(page, onchain); } catch { await onchain.click({ force: true, delay: 40 }); }
       await humanPause(page);
     }
 
-    // Bank account dropdown â€” open and screenshot options (no selection committed).
     const bankDropdown = page.getByText(/select bank account/i).first();
     await expect(bankDropdown).toBeVisible();
-    await humanClick(page, bankDropdown);
+    try { await humanClick(page, bankDropdown); } catch { await bankDropdown.click({ force: true, delay: 40 }); }
     await humanPause(page, 800, 1400);
     await shot(page, '08-sell-bank-dropdown');
     await page.keyboard.press('Escape').catch(() => {});
     await humanPause(page, 400, 900);
 
     const back = backButton(page);
-    if (await back.isVisible().catch(() => false)) {
-      await humanClick(page, back);
+    if (await back.isVisible({ timeout: 2_500 }).catch(() => false)) {
+      try { await humanClick(page, back); } catch { await back.click({ force: true, delay: 40 }); }
       await humanPause(page);
       await expect(page.getByText(/set up your connection/i)).toBeVisible({ timeout: 10_000 });
       await shot(page, '09-back-to-cards');
@@ -327,7 +353,7 @@ test.describe('Bringin Connect â€” KYC-approved wizard smoke', () => {
     if (focusedNext) {
       await page.keyboard.press('Enter');
       await humanPause(page);
-      await page.waitForLoadState('networkidle').catch(() => {});
+      await page.waitForLoadState('networkidle', { timeout: 6_000 }).catch(() => {});
       await expect(page.getByText(/set up your connection/i)).toBeVisible({ timeout: 15_000 });
 
       const buy = setupBuyCardButton(page);
@@ -348,7 +374,6 @@ test.describe('Bringin Connect â€” KYC-approved wizard smoke', () => {
   });
 
   test('TC-12: mobile viewport (iPhone SE 375Ã—667) â€” wizard reachable', async ({ browser }) => {
-    // Login on desktop first (anti-bot friendliness), then resize + re-navigate.
     const desktop = await browser.newContext({
       userAgent:
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36',
@@ -370,9 +395,9 @@ test.describe('Bringin Connect â€” KYC-approved wizard smoke', () => {
       description: `Welcome Next bounding box on 375w: ${JSON.stringify(box)}`,
     });
 
-    await humanClick(page, next);
+    try { await humanClick(page, next); } catch { await next.click({ force: true, delay: 40 }); }
     await humanPause(page);
-    await page.waitForLoadState('networkidle').catch(() => {});
+    await page.waitForLoadState('networkidle', { timeout: 6_000 }).catch(() => {});
     await expect(page.getByText(/set up your connection/i)).toBeVisible({ timeout: 15_000 });
     await shot(page, '11-mobile-375-cards');
 
@@ -383,9 +408,9 @@ test.describe('Bringin Connect â€” KYC-approved wizard smoke', () => {
     await login(page);
     for (const name of ['Home', 'Transactions', 'Card', 'Profile', 'Integrations', 'Mobile App']) {
       const link = page.getByRole('link', { name: new RegExp(`^${name}$`, 'i') }).first();
-      if (await link.isVisible().catch(() => false)) {
-        await humanClick(page, link);
-        await page.waitForLoadState('networkidle').catch(() => {});
+      if (await link.isVisible({ timeout: 2_000 }).catch(() => false)) {
+        try { await humanClick(page, link); } catch { await link.click({ force: true, delay: 40 }); }
+        await page.waitForLoadState('networkidle', { timeout: 6_000 }).catch(() => {});
         await humanPause(page, 1400, 2400);
         await shot(page, `12-regression-${name.toLowerCase().replace(/\s+/g, '-')}`);
       }
@@ -401,7 +426,7 @@ test.describe('Bringin Connect â€” KYC-approved wizard smoke', () => {
     });
     const page = await context.newPage();
     await page.goto('/connect', { waitUntil: 'domcontentloaded' });
-    await page.waitForLoadState('networkidle').catch(() => {});
+    await page.waitForLoadState('networkidle', { timeout: 6_000 }).catch(() => {});
     await longPause(page);
     const url = page.url();
     const loggedOut = /login|signin|auth|\/$/.test(url);

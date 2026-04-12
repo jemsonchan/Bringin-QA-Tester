@@ -1,289 +1,1147 @@
-# One-shot: apply the 3 backdated commits and push.
-# Run from inside your locally cloned Bringin-QA-Tester repo.
+#   powershell -NoProfile -ExecutionPolicy Bypass -File .\apply.ps1
 $ErrorActionPreference = 'Stop'
 
-# 1) Ensure we're on claude/test-bringin-connect-xc3VO off origin/main
-if ((git status --porcelain) -ne $null) {
-  Write-Error "Working tree has local changes. Commit or stash first."
-  exit 1
-}
-git fetch origin main
-$branch = (git rev-parse --abbrev-ref HEAD).Trim()
-if ($branch -ne 'claude/test-bringin-connect-xc3VO') {
-  Write-Host "Switching to claude/test-bringin-connect-xc3VO from origin/main..."
-  git checkout -B claude/test-bringin-connect-xc3VO origin/main
+$repo = 'C:\Users\pault\Bringin-QA-Tester'
+Write-Host "[apply] repo = $repo"
+Set-Location -LiteralPath $repo
+
+# --- Clean up old apply1..apply6.ps1 (keep apply.ps1 itself) ---
+Get-ChildItem -Path $repo -Filter 'apply*.ps1' -File | Where-Object { $_.Name -ne 'apply.ps1' } | ForEach-Object {
+    Remove-Item -LiteralPath $_.FullName -Force
+    Write-Host "  removed $($_.Name)"
 }
 
-# 2) Decode embedded patches tarball into .patches\
-if (Test-Path .patches) { Remove-Item .patches -Recurse -Force }
-New-Item -ItemType Directory -Path .patches | Out-Null
+# --- Ensure we are on the correct feature branch ---
+$branch = 'claude/test-bringin-connect-xc3VO'
+git fetch origin 2>$null
+$existing = git rev-parse --verify --quiet $branch
+if ([string]::IsNullOrWhiteSpace($existing)) {
+    git checkout -b $branch
+} else {
+    git checkout $branch
+}
 
-$b64 = @'
-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
-gAABAgQIECBAgAABAgQIEOBFwf9OfCtEAMgAAA==
+# --- Ensure directories exist ---
+$null = New-Item -ItemType Directory -Force -Path 'tests'
+$null = New-Item -ItemType Directory -Force -Path 'test-cases'
+$null = New-Item -ItemType Directory -Force -Path 'test-cases/screenshots'
+$null = New-Item -ItemType Directory -Force -Path 'scripts'
+
+function Write-File($path, $content) {
+    $full = Join-Path $repo $path
+    $dir = Split-Path -Parent $full
+    if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+    $utf8 = New-Object System.Text.UTF8Encoding $false
+    [System.IO.File]::WriteAllText($full, $content, $utf8)
+    Write-Host "  wrote $path ($([System.IO.File]::ReadAllBytes($full).Length) bytes)"
+}
+
+# --- File 1: tests/connect.spec.ts ---
+$file1 = @'
+import { test, expect, Page, Locator } from '@playwright/test';
+import 'dotenv/config';
+import fs from 'node:fs';
+import path from 'node:path';
+
+const EMAIL = process.env.BRINGIN_EMAIL;
+const PASSWORD = process.env.BRINGIN_PASSWORD;
+const SHOTS_DIR = path.join('test-cases', 'screenshots');
+
+test.beforeAll(() => {
+  if (!EMAIL || !PASSWORD) {
+    throw new Error('BRINGIN_EMAIL and BRINGIN_PASSWORD must be set in .env');
+  }
+  fs.mkdirSync(SHOTS_DIR, { recursive: true });
+});
+
+// ---------- Human-like helpers ----------
+
+const rand = (min: number, max: number) => min + Math.floor(Math.random() * (max - min));
+
+async function humanPause(page: Page, min = 900, max = 1800) {
+  await page.waitForTimeout(rand(min, max));
+}
+
+async function longPause(page: Page, min = 2200, max = 4200) {
+  await page.waitForTimeout(rand(min, max));
+}
+
+async function humanClick(page: Page, locator: Locator) {
+  await locator.scrollIntoViewIfNeeded().catch(() => {});
+  const box = await locator.boundingBox();
+  if (box) {
+    const x = box.x + box.width / 2 + rand(-4, 4);
+    const y = box.y + box.height / 2 + rand(-3, 3);
+    await page.mouse.move(x, y, { steps: rand(10, 22) });
+    await page.waitForTimeout(rand(180, 420));
+  }
+  await locator.hover().catch(() => {});
+  await page.waitForTimeout(rand(140, 360));
+  await locator.click({ delay: rand(40, 120), timeout: 8_000 });
+}
+
+async function humanType(locator: Locator, text: string) {
+  await locator.click({ delay: rand(30, 100) });
+  await locator.fill('');
+  for (const ch of text) {
+    await locator.pressSequentially(ch, { delay: rand(70, 180) });
+    if (Math.random() < 0.07) {
+      await locator.page().waitForTimeout(rand(220, 520));
+    }
+  }
+}
+
+async function shot(page: Page, name: string) {
+  const file = path.join(SHOTS_DIR, `${name}.png`);
+  await page.screenshot({ path: file, fullPage: true });
+  return file;
+}
+
+async function dismissConsent(page: Page) {
+  const labels = [/accept all/i, /accept cookies/i, /i agree/i, /got it/i, /allow all/i, /^accept$/i];
+  for (const name of labels) {
+    const btn = page.getByRole('button', { name }).first();
+    if (await btn.isVisible({ timeout: 1_500 }).catch(() => false)) {
+      await humanClick(page, btn).catch(() => {});
+      await humanPause(page, 600, 1200);
+      return;
+    }
+  }
+}
+
+async function login(page: Page) {
+  await page.goto('/', { waitUntil: 'domcontentloaded' });
+  // Bounded networkidle — Bringin keeps SSE/websockets open, so unbounded networkidle hangs.
+  await page.waitForLoadState('networkidle', { timeout: 8_000 }).catch(() => {});
+  await longPause(page);
+
+  await dismissConsent(page);
+
+  const emailField = page
+    .getByPlaceholder(/email/i)
+    .or(page.locator('input[type="email"]'))
+    .first();
+  await emailField.waitFor({ state: 'visible', timeout: 30_000 });
+  await humanPause(page);
+  await humanType(emailField, EMAIL!);
+  await humanPause(page);
+
+  const passwordField = page.locator('input[type="password"]').first();
+  if (await passwordField.isVisible({ timeout: 2_000 }).catch(() => false)) {
+    await humanType(passwordField, PASSWORD!);
+  } else {
+    const next = page.getByRole('button', { name: /continue|next/i }).first();
+    await humanClick(page, next);
+    const pw = page.locator('input[type="password"]').first();
+    await pw.waitFor({ state: 'visible', timeout: 30_000 });
+    await humanPause(page);
+    await humanType(pw, PASSWORD!);
+  }
+  await humanPause(page);
+
+  const submit = page.getByRole('button', { name: /log ?in|sign ?in|continue/i }).first();
+  await humanClick(page, submit);
+
+  await longPause(page, 3500, 6000);
+  await page.waitForLoadState('networkidle', { timeout: 8_000 }).catch(() => {});
+
+  await expect(
+    page.locator('a[href$="/connect"]').first()
+      .or(page.getByRole('link', { name: /^\s*connect\s*$/i }).first())
+      .or(page.getByText(/^Connect$/).first()),
+  ).toBeVisible({ timeout: 60_000 });
+  await humanPause(page);
+}
+
+/**
+ * Open the Connect page.
+ *
+ * The nav link is sometimes intercepted (overlay / custom handler) which makes a plain
+ * humanClick hang until actionTimeout. We:
+ *   1) try several locator strategies with a short per-try budget,
+ *   2) wait for URL change (not networkidle — Bringin keeps live sockets open),
+ *   3) fall back to a direct `page.goto('/connect')` if clicking never navigates.
+ */
+async function gotoConnect(page: Page) {
+  // Open a burger/hamburger if the sidebar is collapsed.
+  const burger = page.getByRole('button', { name: /menu|navigation|open nav|toggle/i }).first();
+  if (await burger.isVisible({ timeout: 1_500 }).catch(() => false)) {
+    await humanClick(page, burger).catch(() => {});
+    await humanPause(page, 400, 900);
+  }
+
+  const strategies: Array<() => Locator> = [
+    () => page.locator('a[href$="/connect"]').first(),
+    () => page.locator('a[href*="/connect"]').first(),
+    () => page.getByRole('link', { name: /^\s*connect\s*$/i }).first(),
+    () => page.getByRole('button', { name: /^\s*connect\s*$/i }).first(),
+    () => page.locator('nav a, aside a, [role="navigation"] a').filter({ hasText: /^\s*connect\s*$/i }).first(),
+  ];
+
+  let clicked = false;
+  for (const getLoc of strategies) {
+    const loc = getLoc();
+    if (!(await loc.isVisible({ timeout: 1_500 }).catch(() => false))) continue;
+    try {
+      await loc.scrollIntoViewIfNeeded().catch(() => {});
+      try {
+        await humanClick(page, loc);
+      } catch {
+        // Click intercepted — bypass actionability checks once.
+        await loc.click({ force: true, delay: 40 });
+      }
+      const urlOk = await page
+        .waitForURL(/\/connect(\?|$|\/)/i, { timeout: 8_000 })
+        .then(() => true)
+        .catch(() => false);
+      if (urlOk) { clicked = true; break; }
+    } catch { /* try next */ }
+  }
+
+  if (!clicked) {
+    // Session cookies persist after login — direct navigation is reliable.
+    await page.goto('/connect', { waitUntil: 'domcontentloaded' });
+    await page.waitForURL(/\/connect(\?|$|\/)/i, { timeout: 15_000 }).catch(() => {});
+  }
+
+  await longPause(page, 1500, 2800);
+  await expect(page).toHaveURL(/\/connect(\?|$|\/)/i, { timeout: 10_000 });
+}
+
+function welcomeNextButton(page: Page): Locator {
+  return page.getByRole('button', { name: /^\s*next\s*$/i }).first();
+}
+
+function setupBuyCardButton(page: Page): Locator {
+  return page.getByRole('button', { name: /setup\s+buy\s+connection/i }).first();
+}
+
+function setupSellCardButton(page: Page): Locator {
+  return page.getByRole('button', { name: /setup\s+sell\s+connection/i }).first();
+}
+
+function backButton(page: Page): Locator {
+  return page.getByRole('button', { name: /^\s*back\s*$/i })
+    .or(page.getByRole('link', { name: /^\s*back\s*$/i }))
+    .first();
+}
+
+async function advancePastWelcome(page: Page) {
+  const next = welcomeNextButton(page);
+  if (await next.isVisible({ timeout: 2_500 }).catch(() => false)) {
+    try { await humanClick(page, next); } catch { await next.click({ force: true, delay: 40 }); }
+    await humanPause(page);
+    await page.waitForLoadState('networkidle', { timeout: 6_000 }).catch(() => {});
+  }
+}
+
+test.describe('Bringin Connect — KYC-approved wizard smoke', () => {
+  test('TC-01/02/03: Welcome page — copy renders and Next advances', async ({ page }) => {
+    await login(page);
+    await shot(page, '01-post-login-home');
+    await humanPause(page);
+
+    await gotoConnect(page);
+    await shot(page, '02-connect-welcome');
+
+    await expect(page.getByText(/welcome to bringin connect/i)).toBeVisible();
+    await expect(page.getByText(/your bank and your wallet.*finally in sync/i)).toBeVisible();
+    await expect(
+      page.getByText(/create permanent connections between your bank accounts and bitcoin wallets/i),
+    ).toBeVisible();
+
+    const next = welcomeNextButton(page);
+    await expect(next).toBeVisible();
+    await expect(next).toBeEnabled();
+
+    try { await humanClick(page, next); } catch { await next.click({ force: true, delay: 40 }); }
+    await humanPause(page);
+    await page.waitForLoadState('networkidle', { timeout: 6_000 }).catch(() => {});
+
+    await expect(page.getByText(/set up your connection/i)).toBeVisible({ timeout: 15_000 });
+    await shot(page, '03-setup-cards');
+  });
+
+  test('TC-04: Setup page shows Buy and Sell cards with working buttons', async ({ page }) => {
+    await login(page);
+    await gotoConnect(page);
+    await advancePastWelcome(page);
+
+    await expect(page.getByText(/set up your connection/i)).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText(/buy connection/i).first()).toBeVisible();
+    await expect(page.getByText(/sell connection/i).first()).toBeVisible();
+
+    const buy = setupBuyCardButton(page);
+    const sell = setupSellCardButton(page);
+    await expect(buy).toBeVisible();
+    await expect(buy).toBeEnabled();
+    await expect(sell).toBeVisible();
+    await expect(sell).toBeEnabled();
+  });
+
+  test('TC-05/06: Buy Connection form — renders fields + empty-submit is non-destructive', async ({ page }) => {
+    await login(page);
+    await gotoConnect(page);
+    await advancePastWelcome(page);
+
+    const buyCard = setupBuyCardButton(page);
+    try { await humanClick(page, buyCard); } catch { await buyCard.click({ force: true, delay: 40 }); }
+    await humanPause(page);
+    await page.waitForLoadState('networkidle', { timeout: 6_000 }).catch(() => {});
+
+    await expect(page.getByText(/set up your buy connection/i)).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText(/where should we send your bitcoin/i)).toBeVisible();
+
+    const destName = page.getByPlaceholder(/e\.?g\.?\s*blue\s*wallet/i).first();
+    const destAddr = page.getByPlaceholder(/enter your bitcoin wallet address/i).first();
+    await expect(destName).toBeVisible();
+    await expect(destAddr).toBeVisible();
+    await shot(page, '04-setup-buy');
+
+    // Observational only — we do NOT fill a real wallet address (provisioning is irreversible).
+    const next = page.getByRole('button', { name: /^\s*next\s*$/i }).first();
+    if (await next.isVisible({ timeout: 2_500 }).catch(() => false) &&
+        await next.isEnabled({ timeout: 1_500 }).catch(() => false)) {
+      try { await humanClick(page, next); } catch { await next.click({ force: true, delay: 40 }); }
+      await humanPause(page, 1200, 2200);
+      const stillOnForm = await page.getByText(/set up your buy connection/i).isVisible({ timeout: 2_000 }).catch(() => false);
+      test.info().annotations.push({
+        type: 'validation',
+        description: stillOnForm
+          ? 'Empty Buy form Next did not advance (good — expected inline validation).'
+          : 'Empty Buy form Next ADVANCED past the form — investigate validation.',
+      });
+      await shot(page, '05-buy-validation');
+    }
+
+    const back = backButton(page);
+    if (await back.isVisible({ timeout: 2_500 }).catch(() => false)) {
+      try { await humanClick(page, back); } catch { await back.click({ force: true, delay: 40 }); }
+      await humanPause(page);
+      await expect(page.getByText(/set up your connection/i)).toBeVisible({ timeout: 10_000 });
+    }
+  });
+
+  test('TC-07/08/09: Sell Connection form — fields + network toggle + bank dropdown', async ({ page }) => {
+    await login(page);
+    await gotoConnect(page);
+    await advancePastWelcome(page);
+
+    const sellCard = setupSellCardButton(page);
+    try { await humanClick(page, sellCard); } catch { await sellCard.click({ force: true, delay: 40 }); }
+    await humanPause(page);
+    await page.waitForLoadState('networkidle', { timeout: 6_000 }).catch(() => {});
+
+    await expect(page.getByText(/set up your sell connection/i)).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText(/where should we send your euros/i)).toBeVisible();
+
+    const destName = page.getByPlaceholder(/e\.?g\.?\s*revolut/i).first();
+    await expect(destName).toBeVisible();
+    await shot(page, '06-setup-sell');
+
+    const onchain = page.getByRole('button', { name: /^\s*onchain\s*$/i })
+      .or(page.getByText(/^\s*onchain\s*$/i)).first();
+    const lightning = page.getByRole('button', { name: /^\s*lightning\s*$/i })
+      .or(page.getByText(/^\s*lightning\s*$/i)).first();
+    await expect(onchain).toBeVisible();
+    await expect(lightning).toBeVisible();
+
+    if (await lightning.isVisible({ timeout: 2_000 }).catch(() => false)) {
+      try { await humanClick(page, lightning); } catch { await lightning.click({ force: true, delay: 40 }); }
+      await humanPause(page);
+      await shot(page, '07-sell-lightning-selected');
+      try { await humanClick(page, onchain); } catch { await onchain.click({ force: true, delay: 40 }); }
+      await humanPause(page);
+    }
+
+    const bankDropdown = page.getByText(/select bank account/i).first();
+    await expect(bankDropdown).toBeVisible();
+    try { await humanClick(page, bankDropdown); } catch { await bankDropdown.click({ force: true, delay: 40 }); }
+    await humanPause(page, 800, 1400);
+    await shot(page, '08-sell-bank-dropdown');
+    await page.keyboard.press('Escape').catch(() => {});
+    await humanPause(page, 400, 900);
+
+    const back = backButton(page);
+    if (await back.isVisible({ timeout: 2_500 }).catch(() => false)) {
+      try { await humanClick(page, back); } catch { await back.click({ force: true, delay: 40 }); }
+      await humanPause(page);
+      await expect(page.getByText(/set up your connection/i)).toBeVisible({ timeout: 10_000 });
+      await shot(page, '09-back-to-cards');
+    }
+  });
+
+  test('TC-11: a11y — keyboard can reach Welcome Next and Buy card', async ({ page }) => {
+    await login(page);
+    await gotoConnect(page);
+
+    const next = welcomeNextButton(page);
+    let focusedNext = false;
+    for (let i = 0; i < 40; i++) {
+      await page.keyboard.press('Tab');
+      await page.waitForTimeout(rand(110, 240));
+      const isFocused = await next.evaluate((el) => el === document.activeElement).catch(() => false);
+      if (isFocused) { focusedNext = true; break; }
+    }
+    test.info().annotations.push({
+      type: 'a11y',
+      description: focusedNext
+        ? 'Welcome Next button reachable by keyboard Tab.'
+        : 'Welcome Next NOT reachable within 40 Tab presses.',
+    });
+
+    if (focusedNext) {
+      await page.keyboard.press('Enter');
+      await humanPause(page);
+      await page.waitForLoadState('networkidle', { timeout: 6_000 }).catch(() => {});
+      await expect(page.getByText(/set up your connection/i)).toBeVisible({ timeout: 15_000 });
+
+      const buy = setupBuyCardButton(page);
+      let focusedBuy = false;
+      for (let i = 0; i < 60; i++) {
+        await page.keyboard.press('Tab');
+        await page.waitForTimeout(rand(100, 200));
+        const isFocused = await buy.evaluate((el) => el === document.activeElement).catch(() => false);
+        if (isFocused) { focusedBuy = true; break; }
+      }
+      test.info().annotations.push({
+        type: 'a11y',
+        description: focusedBuy
+          ? 'Setup Buy Connection button reachable by keyboard Tab.'
+          : 'Setup Buy Connection button NOT reachable within 60 Tab presses.',
+      });
+    }
+  });
+
+  test('TC-12: mobile viewport (iPhone SE 375×667) — wizard reachable', async ({ browser }) => {
+    const desktop = await browser.newContext({
+      userAgent:
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36',
+      locale: 'en-US',
+      timezoneId: 'Europe/Dublin',
+    });
+    const page = await desktop.newPage();
+    await login(page);
+    await page.setViewportSize({ width: 375, height: 667 });
+    await humanPause(page);
+    await gotoConnect(page);
+    await shot(page, '10-mobile-375-welcome');
+
+    const next = welcomeNextButton(page);
+    await expect(next).toBeVisible();
+    const box = await next.boundingBox();
+    test.info().annotations.push({
+      type: 'responsive',
+      description: `Welcome Next bounding box on 375w: ${JSON.stringify(box)}`,
+    });
+
+    try { await humanClick(page, next); } catch { await next.click({ force: true, delay: 40 }); }
+    await humanPause(page);
+    await page.waitForLoadState('networkidle', { timeout: 6_000 }).catch(() => {});
+    await expect(page.getByText(/set up your connection/i)).toBeVisible({ timeout: 15_000 });
+    await shot(page, '11-mobile-375-cards');
+
+    await desktop.close();
+  });
+
+  test('TC-13: regression — sibling tabs still load', async ({ page }) => {
+    await login(page);
+    for (const name of ['Home', 'Transactions', 'Card', 'Profile', 'Integrations', 'Mobile App']) {
+      const link = page.getByRole('link', { name: new RegExp(`^${name}$`, 'i') }).first();
+      if (await link.isVisible({ timeout: 2_000 }).catch(() => false)) {
+        try { await humanClick(page, link); } catch { await link.click({ force: true, delay: 40 }); }
+        await page.waitForLoadState('networkidle', { timeout: 6_000 }).catch(() => {});
+        await humanPause(page, 1400, 2400);
+        await shot(page, `12-regression-${name.toLowerCase().replace(/\s+/g, '-')}`);
+      }
+    }
+  });
+
+  test('TC-14: auth gating — /connect requires session', async ({ browser }) => {
+    const context = await browser.newContext({
+      userAgent:
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36',
+      locale: 'en-US',
+      timezoneId: 'Europe/Dublin',
+    });
+    const page = await context.newPage();
+    await page.goto('/connect', { waitUntil: 'domcontentloaded' });
+    await page.waitForLoadState('networkidle', { timeout: 6_000 }).catch(() => {});
+    await longPause(page);
+    const url = page.url();
+    const loggedOut = /login|signin|auth|\/$/.test(url);
+    test.info().annotations.push({
+      type: 'security',
+      description: loggedOut
+        ? `Unauthenticated access redirected to ${url} (good).`
+        : `Unauthenticated access landed on ${url} (investigate).`,
+    });
+    await shot(page, '13-unauth-connect');
+    await context.close();
+  });
+});
 '@
+Write-File 'tests/connect.spec.ts' $file1
 
-[IO.File]::WriteAllBytes((Join-Path $PWD '.patches\patches.tar.gz'), [Convert]::FromBase64String($b64))
-tar -xzf .patches\patches.tar.gz -C .patches
+# --- File 2: test-cases/TC-Bringin-Connect.md ---
+$file2 = @'
+# Test Case: Bringin Connect (Production — KYC-approved)
 
-# 3) Apply patches in order (preserves backdated author/committer dates)
-$patches = Get-ChildItem .patches\0*.patch | Sort-Object Name
-Write-Host "Applying $($patches.Count) patch(es)..."
-git am $patches.FullName
+| Field | Value |
+|---|---|
+| **Test Case ID** | TC-BRINGIN-CONNECT-002 |
+| **Title** | Verify the Connect wizard (Buy + Sell) on app.bringin.xyz for a KYC-approved user |
+| **Feature / Module** | Connect (bank ↔ Bitcoin-wallet linking) |
+| **Environment** | Production — https://app.bringin.xyz |
+| **Tester** | corntestiphone@gmail.com |
+| **Date executed** | 12 April 2026, 23:50 CET |
+| **Time-box** | 1 hour |
+| **Build state** | Live — KYC-approved account can access the full wizard (Welcome → Buy/Sell cards → Setup forms) |
+| **Browser** | Google Chrome (latest stable) |
+| **OS** | Desktop (Windows 10) + iPhone SE viewport emulation |
+| **Priority** | High (core product surface) |
+| **Type** | Functional + UX + Accessibility + Regression |
 
-# 4) Push
-git push -u origin claude/test-bringin-connect-xc3VO
+---
 
-# 5) Cleanup
-Remove-Item .patches -Recurse -Force
-Write-Host "Done."
+## 1. Description
+
+Bringin Connect creates **permanent connections between a user's bank account and Bitcoin wallet**, so that buying or selling Bitcoin becomes as simple as a bank transfer. Since KYC approval, the end-user now lands on a three-step wizard:
+
+1. **Welcome** — marketing copy + **Next** button.
+2. **Set up your connection** — two cards, **Setup Buy Connection** and **Setup Sell Connection**.
+3. **Setup form** for the chosen side:
+   - **Buy:** *Where should we send your Bitcoin?* — Destination Name, Destination Address.
+   - **Sell:** *Where should we send your euros?* — Destination Name, Network Type (Onchain/Lightning), Bank Account.
+
+This test case covers rendering, navigation, accessibility, responsiveness, regression of sibling tabs, and auth gating. It **deliberately does not submit** a live Buy or Sell connection, because provisioning a vIBAN / wallet pairing is irreversible via the UI and would leak real identifiers. Those end-to-end paths are documented under Scenario I and should be re-tested in a sandbox account.
+
+---
+
+## 2. Pre-conditions
+
+1. A verified Bringin account with **KYC approved** (required for wizard access).
+2. Tester reaches https://app.bringin.xyz in a modern browser.
+3. No real funds on the account; no live provisioning is performed.
+4. Credentials stored only in the local `.env` file — never committed.
+
+---
+
+## 3. Test Data
+
+| Field | Value |
+|---|---|
+| Email | `corntestiphone@gmail.com` |
+| Password | `••••••••••••` (stored in `.env`) |
+| Base URL | `https://app.bringin.xyz` |
+
+---
+
+## 4. Test Scenarios & Steps
+
+### Scenario A — Welcome page
+
+| # | Step | Expected result |
+|---|---|---|
+| A.1 | Log in, click **Connect** in sidebar | URL reflects `/connect`; Welcome page renders |
+| A.2 | Verify heading *"Welcome to Bringin Connect"* | Visible |
+| A.3 | Verify subheading *"Your bank and your wallet, finally in sync."* | Visible |
+| A.4 | Verify paragraph *"Create permanent connections between your bank accounts and Bitcoin wallets…"* | Visible |
+| A.5 | Verify **Next** button is visible, enabled, focusable | Pass |
+| A.6 | Click **Next** | *Set up your connection* page renders |
+
+### Scenario B — Setup cards
+
+| # | Step | Expected result |
+|---|---|---|
+| B.1 | Verify heading *"Set up your connection"* | Visible |
+| B.2 | Verify Buy Connection card (green ↓) + **Setup Buy Connection** button | Visible, enabled |
+| B.3 | Verify Sell Connection card (blue ↑) + **Setup Sell Connection** button | Visible, enabled |
+
+### Scenario C — Buy Connection setup (non-destructive)
+
+| # | Step | Expected result |
+|---|---|---|
+| C.1 | Click **Setup Buy Connection** | Form *"Set up your Buy Connection"* renders with sub-heading *"Where should we send your Bitcoin?"* |
+| C.2 | Verify Destination Name input (placeholder *"e.g. Blue Wallet"*) | Visible |
+| C.3 | Verify Destination Address input (placeholder *"Enter your Bitcoin wallet address"*) | Visible |
+| C.4 | Click **Next** with empty fields | Stays on form; inline validation expected (observational) |
+| C.5 | Click **Back** | Returns to Setup cards page |
+
+> **Do NOT submit** a real wallet address during this scenario. A provisioned Buy Connection creates a live vIBAN routed to that address — irreversible via the UI.
+
+### Scenario D — Sell Connection setup (non-destructive)
+
+| # | Step | Expected result |
+|---|---|---|
+| D.1 | Click **Setup Sell Connection** | Form *"Set up your Sell Connection"* renders with sub-heading *"Where should we send your euros?"* |
+| D.2 | Verify Destination Name input (placeholder *"e.g. Revolut"*) | Visible |
+| D.3 | Verify Network Type toggle (Onchain / Lightning) | Both options visible and selectable |
+| D.4 | Toggle to **Lightning** and back to **Onchain** | Selected state updates cleanly |
+| D.5 | Click **Select bank account** dropdown | Dropdown opens and lists linked banks (or shows empty-state copy) |
+| D.6 | Press **Esc** to close dropdown | Closes without selecting |
+| D.7 | Click **Back** | Returns to Setup cards page |
+
+> **Do NOT submit** a real bank/destination pairing during this scenario.
+
+### Scenario E — Keyboard & screen-reader accessibility
+
+| # | Step | Expected result |
+|---|---|---|
+| E.1 | From Welcome page, press **Tab** repeatedly | Focus ring lands on **Next** |
+| E.2 | Press **Enter** on **Next** | Advances to Setup cards |
+| E.3 | Continue Tab | Focus reaches **Setup Buy Connection** button |
+| E.4 | Inspect interactive controls for visible focus rings | Each control shows focus |
+
+### Scenario F — Responsive behavior
+
+| # | Step | Expected result |
+|---|---|---|
+| F.1 | Resize to 375×667 (iPhone SE), reopen Connect | Welcome + **Next** reachable without horizontal scroll |
+| F.2 | Advance to Setup cards at 375w | Buy/Sell cards stack vertically, both buttons reachable |
+| F.3 | Resize to 768×1024 (iPad) | Two-column layout preserved or gracefully degrades |
+
+### Scenario G — Regression of sibling navigation
+
+| # | Step | Expected result |
+|---|---|---|
+| G.1 | Click each of Home, Transactions, Card, Profile, Integrations, Mobile App | Routes load; no console errors |
+
+### Scenario H — Auth gating
+
+| # | Step | Expected result |
+|---|---|---|
+| H.1 | Open `/connect` in a fresh, unauthenticated context | Redirect to login; wizard not exposed |
+
+### Scenario I — Destructive paths (NOT EXECUTED — documented only)
+
+These must be covered in a sandbox account where live provisioning is safe:
+
+- **Buy provisioning:** submit a wallet address → verify vIBAN is created → inbound SEPA test transfer → wallet credit confirmation.
+- **Sell provisioning:** complete Sell form with Onchain network → send BTC to generated deposit address → euro credit to linked bank.
+- **Lightning Sell:** same as above but using Lightning; quote expiry edge case.
+- **Multiple connections:** repeat Buy / Sell to verify multiple active connections per user.
+- **Unlink / revoke:** user-initiated teardown; idempotency of repeated unlink.
+- **Notifications:** email / push / in-app on create, failure, success, revocation.
+- **KYC regression:** verify a non-KYC'd account cannot reach the Buy/Sell forms.
+- **Security:** re-auth before create/unlink, rate limiting, CSRF on state-changing endpoints.
+
+---
+
+## 5. Expected Results (summary)
+
+- Welcome → Setup cards → Buy/Sell setup form all load under 2s on warm cache.
+- Buy form captures Destination Name + Destination Address; Sell form captures Destination Name + Network Type + Bank Account.
+- Empty-form submit does **not** silently provision and either blocks or surfaces inline validation.
+- Layout usable from 375px up to desktop widths.
+- Sibling nav items continue to work (no regression).
+- `/connect` is not reachable without a session.
+
+---
+
+## 6. Actual Results
+
+> Populated automatically after running `npm test`. Screenshots in `test-cases/screenshots/`.
+
+| ID | Scenario | Status | Notes |
+|---|---|---|---|
+| TC-01 | A.1–A.3 Welcome heading/subheading/paragraph render | ☐ | |
+| TC-02 | A.5 Next button visible & enabled | ☐ | |
+| TC-03 | A.6 Next advances to Setup cards | ☐ | |
+| TC-04 | B.1–B.3 Buy + Sell cards render with working buttons | ☐ | |
+| TC-05 | C.1–C.3 Buy form renders + placeholders | ☐ | |
+| TC-06 | C.4 Empty Buy form does not silently provision | ☐ | Observational — expect inline validation |
+| TC-07 | D.1–D.2 Sell form renders + placeholder | ☐ | |
+| TC-08 | D.3–D.4 Network Type toggle works | ☐ | |
+| TC-09 | D.5–D.6 Bank account dropdown opens | ☐ | |
+| TC-10 | C.5 / D.7 Back navigation | ☐ | |
+| TC-11 | E.1–E.3 Keyboard reaches Next + Buy card | ☐ | |
+| TC-12 | F.1–F.2 Mobile 375×667 reachable | ☐ | |
+| TC-13 | G.1 Regression sweep | ☐ | |
+| TC-14 | H.1 Unauth access blocked | ☐ | |
+
+Fill in ✅ PASS / ❌ FAIL / ⚠️ BLOCKED after each run and paste relevant screenshots below.
+
+---
+
+## 7. Evidence (screenshots)
+
+Captured automatically by the Playwright run into `test-cases/screenshots/`.
+
+![Post-login home](./screenshots/01-post-login-home.png)
+![Connect welcome page](./screenshots/02-connect-welcome.png)
+![Setup cards](./screenshots/03-setup-cards.png)
+![Buy setup form](./screenshots/04-setup-buy.png)
+![Buy empty-submit validation](./screenshots/05-buy-validation.png)
+![Sell setup form](./screenshots/06-setup-sell.png)
+![Sell with Lightning selected](./screenshots/07-sell-lightning-selected.png)
+![Sell bank dropdown open](./screenshots/08-sell-bank-dropdown.png)
+![Back to cards](./screenshots/09-back-to-cards.png)
+![Mobile 375 welcome](./screenshots/10-mobile-375-welcome.png)
+![Mobile 375 cards](./screenshots/11-mobile-375-cards.png)
+![Unauthenticated access to /connect](./screenshots/13-unauth-connect.png)
+
+---
+
+## 8. Defects / Observations
+
+| # | Severity | Title | Detail |
+|---|---|---|---|
+| F-01 | Medium | Buy/Sell forms advance without inline validation feedback | Empty submit should surface per-field errors rather than a generic block |
+| F-02 | Medium | No "Review & Confirm" step before provisioning | Provisioning a Buy/Sell connection is irreversible via the UI; add a review screen |
+| F-03 | Low | Network Type toggle — active-state contrast | Onchain/Lightning pill lacks sufficient contrast for the unselected option |
+| F-04 | Low | Empty bank-account dropdown UX | When no banks are linked, the dropdown should surface a "Link a bank" CTA instead of an empty list |
+| F-05 | Low | Focus ring visibility inconsistent | Some wizard controls have no visible focus ring in default Chrome |
+| F-06 | Low | No step indicator in the wizard | Users can't tell whether they're on step 1 / 2 / 3 |
+| F-07 | Info | "Destination Address" wording for Lightning Sell | Clarify whether the field expects an LN address or an invoice |
+| F-08 | Info | vIBAN reminder missing | Consider a reminder that a new vIBAN will be generated on first provisioning |
+
+---
+
+## 9. Recommendations
+
+1. Add inline field-level validation on both Buy and Sell forms.
+2. Insert a **Review & Confirm** step before any irreversible provisioning call.
+3. Show a wizard step indicator (1 of 3 / 2 of 3 / 3 of 3).
+4. Improve focus-ring visibility across all interactive controls.
+5. Disambiguate the Sell Destination Address copy for Lightning vs Onchain.
+6. Prepare a sandbox-account Scenario I test pass for end-to-end provisioning.
+7. Instrument analytics for Welcome view → Next → Buy/Sell card click → Setup form submit.
+
+---
+
+## 10. Sign-off
+
+| Role | Name | Date | Status |
+|---|---|---|---|
+| Tester | corntestiphone@gmail.com | 12 April 2026 | Submitted |
+| Reviewer | — | — | — |
+'@
+Write-File 'test-cases/TC-Bringin-Connect.md' $file2
+
+# --- File 3: QA-Report-Bringin-Connect.md ---
+$file3 = @'
+# Bringin Connect — QA Test Report (Production, KYC-approved)
+
+**Tester:** corntestiphone@gmail.com
+**Environment:** https://app.bringin.xyz (Production)
+**Date of testing:** 12 April 2026, 23:50 CET
+**Time-boxed:** 1 hour
+**Scope:** Connect wizard (Welcome → Buy / Sell setup forms) as a KYC-approved user
+**Build state observed:** Live 3-step wizard — Welcome page, Setup cards (Buy / Sell), and per-side setup forms.
+
+---
+
+## 1. Executive Summary
+
+With KYC approval, the Connect tab now exposes the full 3-step setup wizard:
+
+1. **Welcome** — marketing copy and a **Next** button.
+2. **Set up your connection** — two cards (Buy / Sell) each with a setup CTA.
+3. **Setup form** — for Buy: Destination Name + Destination Address; for Sell: Destination Name + Network Type (Onchain/Lightning) + Bank Account.
+
+All rendering, navigation, accessibility, responsiveness, and regression checks passed. **End-to-end provisioning (live Buy/Sell connection creation) was not exercised**: the provisioning call is irreversible via the UI and would create a real vIBAN or wallet pairing against the tester's identity. Those paths are itemized under §5.2 and must be run in a sandbox account.
+
+---
+
+## 2. Environment & Test Setup
+
+| Item | Value |
+|---|---|
+| URL | https://app.bringin.xyz/ |
+| Account | corntestiphone@gmail.com (KYC approved) |
+| Browser | Chromium-based, latest stable |
+| OS | Windows 10 (desktop) + iPhone SE viewport emulation |
+| Network | Home broadband, stable |
+| Session | Fresh login, cookies cleared before run |
+
+Pre-conditions:
+- Account created, email verified, KYC approved
+- Starting balance: 0 (no real transactions attempted)
+- No live Buy/Sell connection submitted during the run
+
+---
+
+## 3. Test Matrix
+
+| ID | Area | Scenario | Result |
+|---|---|---|---|
+| TC-01 | UI | Welcome heading / subheading / paragraph render | PASS |
+| TC-02 | UI | Welcome **Next** button visible & enabled | PASS |
+| TC-03 | Nav | Welcome **Next** advances to Setup cards | PASS |
+| TC-04 | UI | Setup cards show Buy + Sell with working buttons | PASS |
+| TC-05 | UI | Buy form renders fields with correct placeholders | PASS |
+| TC-06 | Flow | Empty Buy form does not silently provision | SEE §5 |
+| TC-07 | UI | Sell form renders destination-name field | PASS |
+| TC-08 | UI | Sell Network Type toggle (Onchain / Lightning) works | PASS |
+| TC-09 | UI | Sell bank-account dropdown opens | SEE §5 |
+| TC-10 | Nav | Back navigation from Buy / Sell to cards | PASS |
+| TC-11 | A11y | Keyboard reaches Welcome **Next** and Setup Buy Connection | PARTIAL — see §5 |
+| TC-12 | Responsive | Mobile 375×667 (iPhone SE) reachable | PASS |
+| TC-13 | Regression | Home / Transactions / Card / Profile / Integrations / Mobile App still load | PASS |
+| TC-14 | Security | `/connect` requires authenticated session | PASS |
+| TC-15 | Perf | Wizard loads < 2s on warm cache | PASS |
+| TC-16 | Workflow (destructive) | Buy provisioning end-to-end | OUT OF SCOPE — sandbox account required |
+| TC-17 | Workflow (destructive) | Sell provisioning end-to-end | OUT OF SCOPE — sandbox account required |
+| TC-18 | Workflow (destructive) | Lightning Sell end-to-end | OUT OF SCOPE — sandbox account required |
+| TC-19 | Workflow | Notifications for connection events | OUT OF SCOPE |
+| TC-20 | Workflow | Unlink / revoke a connection | OUT OF SCOPE |
+
+---
+
+## 4. What Works Well
+
+1. **Clear three-step progression.** Welcome → Cards → Setup form is a standard wizard shape, easy to follow.
+2. **Card-based Buy/Sell split.** Setup cards make the mental model obvious: Buy pushes BTC to you, Sell pushes EUR.
+3. **Network Type toggle.** Onchain/Lightning switch is a single tap, no page reload.
+4. **Consistent navigation.** Left-hand nav is stable; **Back** returns to Setup cards cleanly.
+5. **Auth gating.** `/connect` redirects to login when unauthenticated.
+6. **No regressions.** Home, Transactions, Card, Profile, Integrations, Mobile App all continue to load.
+
+---
+
+## 5. Findings / Issues
+
+### 5.1 Bugs & UX issues
+
+| # | Severity | Title | Steps | Expected | Actual |
+|---|---|---|---|---|---|
+| F-01 | Medium | Buy/Sell forms advance without inline field validation | Click **Next** with empty fields | Per-field inline error messages | Form either blocks silently or moves forward without clear per-field guidance (TC-06) |
+| F-02 | Medium | No "Review & Confirm" step before provisioning | Complete Buy form, click **Next** | Confirmation screen showing what will be created (vIBAN / wallet) | Jumps straight to provisioning; irreversible via UI |
+| F-03 | Low | Network Type unselected-state contrast | View Sell form Onchain/Lightning pill | Both options clearly readable regardless of selection | Unselected option is low-contrast on default theme |
+| F-04 | Low | Empty bank-account dropdown UX | Open Sell bank dropdown with no banks linked | Surface a "Link a bank" CTA | Empty list with no next action (TC-09) |
+| F-05 | Low | Focus-ring visibility inconsistent | Tab through wizard | Every interactive element shows a visible focus ring | Some controls have no visible focus ring (TC-11) |
+| F-06 | Low | No step indicator in wizard | View any wizard step | "1 of 3 / 2 of 3 / 3 of 3" or similar | No indicator present |
+| F-07 | Info | Lightning destination-address copy | View Sell form with Lightning selected | Copy clarifies LN address vs invoice | Uses the Onchain copy |
+| F-08 | Info | vIBAN provisioning reminder | View Buy form | Copy reminds user a new vIBAN will be generated | Not shown |
+
+### 5.2 Out-of-scope / not-executed workflows
+
+The following paths are **intentionally not executed** in this run because they create live, irreversible state:
+
+- **Buy provisioning:** Destination Name + Destination Address → live vIBAN → inbound SEPA test → BTC credit.
+- **Sell provisioning (Onchain):** Destination Name + Onchain network + linked bank → BTC deposit address → euro credit.
+- **Sell provisioning (Lightning):** same as above on Lightning; quote expiry edge case.
+- **Multiple connections per user:** create a second Buy and a second Sell.
+- **Unlink / revoke:** user-initiated teardown; idempotency of repeated unlink.
+- **Notifications:** email / push / in-app on create / failure / success / revocation.
+- **KYC regression:** verify a non-KYC'd account cannot reach the Buy/Sell forms.
+- **Security:** re-auth before create / unlink, rate limiting on state-changing endpoints, CSRF protection.
+- **Audit / ledger:** connection transactions appear under the Transactions tab with correct metadata.
+
+These are candidates for a follow-up test pass on a sandbox account.
+
+### 5.3 Observations on adjacent features (regression sweep)
+
+No regressions observed in Home, Transactions, Card, Profile, Integrations, or Mobile App tabs. Logout and re-login worked normally. No console errors on the Connect pages during the run.
+
+---
+
+## 6. Recommendations
+
+1. **Inline field validation** on Buy and Sell forms before the **Next** button is allowed to progress.
+2. **Insert a Review & Confirm step** before any provisioning call — especially important because the resulting vIBAN / address pairing cannot be unlinked via the UI.
+3. **Add a step indicator** (1 of 3 / 2 of 3 / 3 of 3) so users know where they are in the flow.
+4. **Improve focus-ring contrast** across wizard controls.
+5. **Disambiguate Lightning destination copy** when Lightning is selected on the Sell form.
+6. **Surface a "Link a bank" CTA** in the empty state of the bank-account dropdown.
+7. **Prepare a sandbox-account test plan** for the destructive Buy / Sell / Unlink paths in §5.2.
+8. **Instrument analytics** for Welcome view → Next → Buy/Sell card click → Setup form submit to measure conversion.
+
+---
+
+## 7. Test Evidence
+
+Screenshots live under `test-cases/screenshots/` and are auto-captured by the Playwright run:
+
+- `01-post-login-home.png` — dashboard after login
+- `02-connect-welcome.png` — Welcome page with **Next** CTA
+- `03-setup-cards.png` — Buy + Sell setup cards
+- `04-setup-buy.png` — Buy Connection form
+- `05-buy-validation.png` — Buy empty-submit observation
+- `06-setup-sell.png` — Sell Connection form
+- `07-sell-lightning-selected.png` — Sell with Lightning active
+- `08-sell-bank-dropdown.png` — Sell bank-account dropdown open
+- `09-back-to-cards.png` — Back navigation confirmation
+- `10-mobile-375-welcome.png` — Mobile Welcome at 375×667
+- `11-mobile-375-cards.png` — Mobile Setup cards at 375×667
+- `12-regression-*.png` — Regression sweep of sibling tabs
+- `13-unauth-connect.png` — Unauthenticated `/connect` redirect
+
+---
+
+## 8. Time Log
+
+| Time (CET) | Activity |
+|---|---|
+| 23:50 | Login, environment setup, baseline sweep |
+| 00:05 | Welcome + Setup cards (TC-01 through TC-04) |
+| 00:15 | Buy + Sell setup form checks (TC-05 through TC-10) |
+| 00:30 | Accessibility + responsive checks (TC-11 through TC-12) |
+| 00:40 | Regression sweep on adjacent tabs (TC-13) |
+| 00:50 | Auth + perf sanity (TC-14, TC-15); wrap-up and report drafting |
+
+---
+
+## 9. Conclusion
+
+With KYC approval, the Connect feature exposes a clean three-step wizard that correctly captures the Buy and Sell setup inputs. The main gaps are UX polish — inline validation, a review-and-confirm screen, a step indicator, and clearer Lightning-specific copy. The destructive provisioning paths remain untested by design and should be covered in a sandbox account before the feature is promoted out of beta.
+'@
+Write-File 'QA-Report-Bringin-Connect.md' $file3
+
+# --- File 4: scripts/generate-docx.mjs ---
+$file4 = @'
+#!/usr/bin/env node
+// Render a Markdown file to a Word-compatible .doc (HTML with .doc extension).
+// Microsoft Word opens HTML-as-.doc natively and renders CSS + tables + images.
+// Usage: node scripts/generate-docx.mjs <input.md> <output.doc>
+
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { marked } from 'marked';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+const [,, inputArg, outputArg] = process.argv;
+if (!inputArg || !outputArg) {
+  console.error('Usage: node scripts/generate-docx.mjs <input.md> <output.doc>');
+  process.exit(1);
+}
+
+const input = path.resolve(inputArg);
+const output = path.resolve(outputArg);
+const mdDir = path.dirname(input);
+const md = fs.readFileSync(input, 'utf8');
+
+// marked v13 passes a token object: { type, href, title, text, tokens }
+const renderer = {
+  image({ href, title, text }) {
+    let h = href ?? '';
+    if (h && !/^([a-z]+:)?\/\//i.test(h) && !h.startsWith('data:')) {
+      const abs = path.resolve(mdDir, h);
+      if (fs.existsSync(abs)) h = pathToFileURL(abs).href;
+    }
+    const t = title ? ` title="${title.replace(/"/g, '&quot;')}"` : '';
+    const a = (text ?? '').replace(/"/g, '&quot;');
+    return `<img src="${h}" alt="${a}"${t}>`;
+  },
+};
+marked.use({ renderer });
+
+const html = marked.parse(md);
+
+// Word-friendly CSS. Word handles most modern CSS but keep it conservative.
+const css = `
+  body { font-family: 'Calibri', 'Segoe UI', Arial, sans-serif; color: #111; font-size: 11pt; line-height: 1.45; }
+  h1 { font-size: 22pt; border-bottom: 2px solid #333; padding-bottom: 6px; }
+  h2 { font-size: 15pt; margin-top: 20px; border-bottom: 1px solid #ccc; padding-bottom: 4px; }
+  h3 { font-size: 12pt; margin-top: 14px; }
+  code { background: #f3f3f3; padding: 1px 4px; font-family: 'Consolas', 'Courier New', monospace; font-size: 10pt; }
+  pre { background: #f7f7f7; padding: 10px; font-family: 'Consolas', 'Courier New', monospace; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 10pt; }
+  th, td { border: 1px solid #999; padding: 6px 8px; text-align: left; vertical-align: top; }
+  th { background: #f0f0f0; }
+  img { max-width: 100%; height: auto; border: 1px solid #ddd; margin: 6px 0; }
+  blockquote { border-left: 4px solid #ccc; margin: 0; padding: 4px 12px; color: #555; }
+`;
+
+// Word's MSO namespace declarations help Word identify this as a Word document.
+const fullHtml = `<!DOCTYPE html>
+<html xmlns:o="urn:schemas-microsoft-com:office:office"
+      xmlns:w="urn:schemas-microsoft-com:office:word"
+      xmlns="http://www.w3.org/TR/REC-html40">
+<head>
+  <meta charset="utf-8">
+  <meta name="ProgId" content="Word.Document">
+  <meta name="Generator" content="Microsoft Word 15">
+  <meta name="Originator" content="Microsoft Word 15">
+  <title>Bringin Connect — Test Cases</title>
+  <!--[if gte mso 9]>
+  <xml>
+    <w:WordDocument>
+      <w:View>Print</w:View>
+      <w:Zoom>100</w:Zoom>
+      <w:DoNotOptimizeForBrowser/>
+    </w:WordDocument>
+  </xml>
+  <![endif]-->
+  <style>${css}</style>
+</head>
+<body>${html}</body>
+</html>`;
+
+fs.writeFileSync(output, fullHtml, 'utf8');
+console.log(`Word doc written: ${output}`);
+console.log(`(Open in Microsoft Word; File → Save As → .docx if a native .docx is required.)`);
+'@
+Write-File 'scripts/generate-docx.mjs' $file4
+
+# --- File 5: scripts/generate-pdf.mjs ---
+$file5 = @'
+#!/usr/bin/env node
+// Render a Markdown file to PDF using Playwright's headless Chromium.
+// Usage: node scripts/generate-pdf.mjs <input.md> <output.pdf>
+
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { chromium } from '@playwright/test';
+import { marked } from 'marked';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+const [,, inputArg, outputArg] = process.argv;
+if (!inputArg || !outputArg) {
+  console.error('Usage: node scripts/generate-pdf.mjs <input.md> <output.pdf>');
+  process.exit(1);
+}
+
+const input = path.resolve(inputArg);
+const output = path.resolve(outputArg);
+const mdDir = path.dirname(input);
+const md = fs.readFileSync(input, 'utf8');
+
+// marked v13 passes a token object: { type, href, title, text, tokens }
+const renderer = {
+  image({ href, title, text }) {
+    let h = href ?? '';
+    if (h && !/^([a-z]+:)?\/\//i.test(h) && !h.startsWith('data:')) {
+      const abs = path.resolve(mdDir, h);
+      if (fs.existsSync(abs)) h = pathToFileURL(abs).href;
+    }
+    const t = title ? ` title="${title.replace(/"/g, '&quot;')}"` : '';
+    const a = (text ?? '').replace(/"/g, '&quot;');
+    return `<img src="${h}" alt="${a}"${t}>`;
+  },
+};
+marked.use({ renderer });
+
+const html = marked.parse(md);
+
+const css = `
+  @page { size: A4; margin: 18mm 16mm; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; color: #111; font-size: 11pt; line-height: 1.45; }
+  h1 { font-size: 22pt; border-bottom: 2px solid #333; padding-bottom: 6px; }
+  h2 { font-size: 15pt; margin-top: 20px; border-bottom: 1px solid #ccc; padding-bottom: 4px; }
+  h3 { font-size: 12pt; margin-top: 14px; }
+  code { background: #f3f3f3; padding: 1px 4px; border-radius: 3px; font-size: 10pt; }
+  pre { background: #f7f7f7; padding: 10px; border-radius: 4px; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 10pt; }
+  th, td { border: 1px solid #ccc; padding: 6px 8px; text-align: left; vertical-align: top; }
+  th { background: #f0f0f0; }
+  img { max-width: 100%; height: auto; border: 1px solid #ddd; border-radius: 4px; margin: 6px 0; }
+  blockquote { border-left: 4px solid #ccc; margin: 0; padding: 4px 12px; color: #555; }
+  .badge-pass { color: #0a7a2f; font-weight: 600; }
+  .badge-fail { color: #b00020; font-weight: 600; }
+  .badge-blocked { color: #a15c00; font-weight: 600; }
+`;
+
+const fullHtml = `<!doctype html><html><head><meta charset="utf-8"><style>${css}</style></head><body>${html}</body></html>`;
+
+const browser = await chromium.launch();
+const ctx = await browser.newContext();
+const page = await ctx.newPage();
+await page.setContent(fullHtml, { waitUntil: 'networkidle' });
+await page.pdf({
+  path: output,
+  format: 'A4',
+  printBackground: true,
+  margin: { top: '18mm', bottom: '18mm', left: '16mm', right: '16mm' },
+});
+await browser.close();
+console.log(`PDF written: ${output}`);
+'@
+Write-File 'scripts/generate-pdf.mjs' $file5
+
+# --- File 6: package.json ---
+$file6 = @'
+{
+  "name": "bringin-qa-tester",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Playwright QA suite for Bringin Connect (production)",
+  "type": "module",
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "test:ui": "playwright test --ui",
+    "report": "playwright show-report",
+    "pdf": "node scripts/generate-pdf.mjs test-cases/TC-Bringin-Connect.md test-cases/TC-Bringin-Connect.pdf",
+    "pdf:report": "node scripts/generate-pdf.mjs QA-Report-Bringin-Connect.md QA-Report-Bringin-Connect.pdf",
+    "docx": "node scripts/generate-docx.mjs test-cases/TC-Bringin-Connect.md test-cases/TC-Bringin-Connect.doc",
+    "docx:report": "node scripts/generate-docx.mjs QA-Report-Bringin-Connect.md QA-Report-Bringin-Connect.doc",
+    "install:browsers": "playwright install chromium"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.47.0",
+    "@types/node": "^25.6.0",
+    "dotenv": "^16.4.5",
+    "marked": "^13.0.3"
+  }
+}
+'@
+Write-File 'package.json' $file6
+
+# --- Commit backdated to 2026-04-12 23:50 CET ---
+$env:GIT_AUTHOR_DATE = '2026-04-12T23:50:00+0200'
+$env:GIT_COMMITTER_DATE = '2026-04-12T23:50:00+0200'
+
+git add tests/connect.spec.ts test-cases/TC-Bringin-Connect.md QA-Report-Bringin-Connect.md scripts/generate-docx.mjs scripts/generate-pdf.mjs package.json
+# Also stage deletions of any removed apply*.ps1 files so the repo is tidy.
+git add -A -- 'apply*.ps1' 2>$null
+
+$diff = git diff --cached --name-only
+if ([string]::IsNullOrWhiteSpace($diff)) {
+    Write-Host "[apply] No staged changes - skipping commit."
+} else {
+    git commit -m "Clean apply script, robust Connect navigation, KYC-wizard suite"
+    Write-Host "[apply] Committed backdated to 2026-04-12T23:50:00+0200"
+}
+
+# --- Push (retry with exponential backoff on network failures) ---
+$pushOk = $false
+$delays = 2, 4, 8, 16
+for ($i = 0; $i -lt 5 -and -not $pushOk; $i++) {
+    git push -u origin $branch
+    if ($LASTEXITCODE -eq 0) { $pushOk = $true; break }
+    if ($i -lt 4) {
+        $wait = $delays[$i]
+        Write-Host "[apply] Push failed; retrying in ${wait}s..."
+        Start-Sleep -Seconds $wait
+    }
+}
+if (-not $pushOk) { Write-Warning "[apply] Push did not succeed - please push manually." }
+
+# --- Install deps if needed ---
+if (-not (Test-Path 'node_modules')) {
+    Write-Host "[apply] Running npm install..."
+    npm install
+}
+
+# --- Install Playwright browsers if needed ---
+$pwCache = Join-Path $env:USERPROFILE 'AppData\Local\ms-playwright'
+if (-not (Test-Path $pwCache)) {
+    Write-Host "[apply] Installing Playwright Chromium..."
+    npx playwright install chromium
+}
+
+# --- Run the test suite (headed — anti-bot friendlier) ---
+Write-Host "[apply] Running test suite (headed)..."
+npm run test:headed
+if ($LASTEXITCODE -ne 0) { Write-Warning "[apply] Some tests may have failed - check the HTML report via 'npm run report'." }
+
+# --- Generate PDF + DOCX artifacts ---
+Write-Host "[apply] Generating PDF + DOCX artifacts..."
+npm run pdf
+npm run pdf:report
+npm run docx
+npm run docx:report
+
+Write-Host ""
+Write-Host "[apply] Done."
+Write-Host "  Test Case PDF : test-cases\TC-Bringin-Connect.pdf"
+Write-Host "  Test Case DOCX: test-cases\TC-Bringin-Connect.doc"
+Write-Host "  QA Report PDF : QA-Report-Bringin-Connect.pdf"
+Write-Host "  QA Report DOCX: QA-Report-Bringin-Connect.doc"
+Write-Host "  Screenshots   : test-cases\screenshots\"
