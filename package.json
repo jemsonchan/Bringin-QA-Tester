@@ -1,0 +1,21 @@
+{
+  "name": "bringin-qa-tester",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Playwright QA suite for Bringin Connect (production)",
+  "type": "module",
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "test:ui": "playwright test --ui",
+    "report": "playwright show-report",
+    "pdf": "node scripts/generate-pdf.mjs test-cases/TC-Bringin-Connect.md test-cases/TC-Bringin-Connect.pdf",
+    "install:browsers": "playwright install chromium"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.47.0",
+    "@types/node": "^25.6.0",
+    "dotenv": "^16.4.5",
+    "marked": "^13.0.3"
+  }
+}

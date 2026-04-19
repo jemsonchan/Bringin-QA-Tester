@@ -1,0 +1,10 @@
+node_modules/
+.env
+.env.local
+playwright-report/
+test-results/
+screenshots/
+!test-cases/screenshots/
+patches/
+*.log
+.DS_Store
